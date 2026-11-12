@@ -63,6 +63,31 @@ def main():
     wide["bid"] *= 0.3
     checks.append(("wide spreads are dropped", core.compute_iv(wide, mkt)["iv"].isna().all()))
 
+    # rebuild_snapshot: the same chain arriving as Databento OPRA quotes must give the same vols.
+    import rebuild_snapshot as rb
+    chain = synthetic_chain()
+    osi = ("TEST".ljust(6) + chain["expiry"].str.replace("-", "").str[2:]
+           + chain["kind"].str[0].str.upper() + (chain["strike"] * 1000).round().astype(int).astype(str).str.zfill(8))
+    quotes = pd.DataFrame({"symbol": osi.to_numpy(), "bid_px_00": chain["bid"].to_numpy(),
+                           "ask_px_00": chain["ask"].to_numpy()},
+                          index=pd.DatetimeIndex([ASOF] * len(chain), name="ts_recv"))
+    quotes = pd.concat([quotes.assign(bid_px_00=0.0), quotes])          # an older, worse quote per option first
+    checks.append(("OSI symbol parsed", rb.parse_osi("NVDA  261113C00165000") == ("NVDA", "2026-11-13", "call", 165.0)))
+    rebuilt = core.compute_iv(rb.chain_from_quotes(quotes, "TEST"), mkt)
+    joined = table.merge(rebuilt, on=["expiry", "kind", "strike"], suffixes=("", "_rb"))
+    checks.append(("rebuilt chain matches Yahoo-style chain (last quote per option wins)",
+                   len(joined) == len(table) and np.allclose(joined["iv"], joined["iv_rb"], equal_nan=True)))
+
+    st = core.straddles(table, mkt, ["2026-12-18"], strikes=[100.0, 101.2])
+    at100 = table[(table["expiry"] == "2026-12-18") & (table["strike"] == 100.0)].set_index("kind")
+    checks.append(("straddle = call mid + put mid, snapped to the nearest listed strike",
+                   list(st["strike"]) == [100.0, 100.0]
+                   and np.isclose(st["straddle"].iloc[0], at100.loc["call", "price"] + at100.loc["put", "price"])
+                   and bool((st["sell"] <= st["straddle"]).all() and (st["straddle"] <= st["buy"]).all())
+                   and np.isclose(st["be_high"].iloc[0] - st["be_low"].iloc[0], 2 * st["straddle"].iloc[0])))
+    checks.append(("moneyness picks strikes relative to spot",
+                   list(core.straddles(table, mkt, ["2026-12-18"], moneyness=[0.9, 1.1])["strike"]) == [90.0, 110.0]))
+
     for name, ok in checks:
         print(f"{'PASS' if ok else 'FAIL'}  {name}")
     raise SystemExit(0 if all(ok for _, ok in checks) else 1)

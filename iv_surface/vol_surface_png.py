@@ -67,7 +67,7 @@ def caption(table: pd.DataFrame, mkt: core.Market) -> tuple[str, str]:
     share_last = (priced["price_source"] == "last").mean()
     title = f"{mkt.ticker} implied volatility surface\n{when}  ·  spot ${mkt.spot:,.2f}"
     source = "bid-ask mids" if share_last < 0.2 else f"{share_last:.0%} last-trade prices (market closed, noisier)"
-    foot = f"Out-of-the-money options, Yahoo Finance chain, {len(priced):,} contracts, {source}."
+    foot = f"Out-of-the-money options, {mkt.source}, {len(priced):,} contracts, {source}."
     if mkt.earnings:
         foot += f"  Next earnings: {mkt.earnings}."
     return title, foot
@@ -147,7 +147,9 @@ def snapshot_at(ticker: str, when: str) -> str:
     saved = [m for m in core.list_snapshots(ticker) if pd.Timestamp(m["asof"]) <= target]
     if not saved:
         raise SystemExit(f"No {ticker.upper()} snapshot saved at or before {when}. Run with --list to see what exists. "
-                         "Yahoo has no historical chains, so only times someone ran this tool are available.")
+                         "Yahoo has no historical chains, so only times someone ran this tool are available. "
+                         "To rebuild another moment from OPRA quotes (needs Databento): "
+                         f'python rebuild_snapshot.py {ticker.upper()} --at "{when}"')
     return saved[-1]["path"]
 
 

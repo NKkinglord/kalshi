@@ -40,6 +40,7 @@ class Market:
     spot: float
     rate: float               # continuously compounded, annual
     earnings: str | None = None   # next earnings date, ISO, if Yahoo has one
+    source: str = "Yahoo Finance chain"   # where the option quotes came from, printed under the pictures
 
 
 # ----------------------------------------------------------------------------
@@ -235,6 +236,39 @@ def term_structure(table: pd.DataFrame, mkt: Market) -> pd.DataFrame:
     return pd.DataFrame(rows).reindex(columns=cols).sort_values("years").reset_index(drop=True)
 
 
+def straddles(table: pd.DataFrame, mkt: Market, expiries, strikes=None, moneyness=None) -> pd.DataFrame:
+    """Straddle prices at chosen expiries and strikes. One row per (expiry, strike).
+
+    Strikes are dollars (`strikes`) or fractions of spot (`moneyness`); each is
+    snapped to the nearest listed strike of that expiry (`target` keeps the value
+    asked for, so snapshots with different spots line up). Prices: `straddle` is the
+    sum of the call and put mids, `buy` the sum of asks, `sell` the sum of bids.
+    NaN where either leg has no usable quote.
+    """
+    if (strikes is None) == (moneyness is None):
+        raise ValueError("give exactly one of strikes or moneyness")
+    targets = list(strikes) if strikes is not None else list(moneyness)
+    wanted = targets if strikes is not None else [m * mkt.spot for m in moneyness]
+    rows = []
+    for expiry in expiries:
+        grp = table[table["expiry"] == expiry]
+        if grp.empty:
+            raise ValueError(f"{mkt.ticker} has no {expiry} expiry in the snapshot at {mkt.asof}")
+        wide = grp.pivot_table(index="strike", columns="kind", values=["bid", "ask", "price"])
+        for target, k in zip(targets, wanted):
+            s = float(wide.index[np.abs(wide.index.to_numpy(dtype=float) - k).argmin()])
+            leg = lambda col, kind: float(wide.loc[s, (col, kind)]) if (col, kind) in wide.columns else np.nan
+            call, put = leg("price", "call"), leg("price", "put")
+            cost = call + put
+            rows.append(dict(asof=mkt.asof, spot=mkt.spot, expiry=expiry, target=target,
+                             dte=float(grp["dte"].iloc[0]), strike=s, moneyness=s / mkt.spot,
+                             call=call, put=put, straddle=cost,
+                             buy=leg("ask", "call") + leg("ask", "put"),
+                             sell=leg("bid", "call") + leg("bid", "put"),
+                             move_pct=cost / mkt.spot, be_low=s - cost, be_high=s + cost))
+    return pd.DataFrame(rows)
+
+
 def constant_maturity(term: pd.DataFrame, days=CONSTANT_MATURITIES) -> dict[int, float | None]:
     """ATM vol at fixed horizons, interpolating total variance (iv^2 * T) linearly in T.
 
@@ -284,7 +318,8 @@ def load_snapshot(path: str | pathlib.Path) -> tuple[pd.DataFrame, Market]:
     path = pathlib.Path(path)
     meta = json.loads(path.with_name(path.name.replace(".csv.gz", ".json")).read_text())
     table = pd.read_csv(path, dtype={"expiry": str})
-    mkt = Market(meta["ticker"], pd.Timestamp(meta["asof"]), meta["spot"], meta["rate"], meta.get("earnings"))
+    mkt = Market(meta["ticker"], pd.Timestamp(meta["asof"]), meta["spot"], meta["rate"], meta.get("earnings"),
+                 meta.get("source", "Yahoo Finance chain"))
     return table, mkt
 
 
