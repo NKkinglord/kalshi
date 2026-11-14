@@ -139,6 +139,23 @@ asks and what you get selling at the bids, the implied move as a percent of spot
 dollars, or fractions of that day's spot with `--moneyness`, snapped to the nearest listed strike. With two or more
 `--at` it also prints the change in each straddle between snapshots. `--csv path` writes the full table.
 
+### Pitch graphs for one straddle
+
+```bash
+python pitch_graphs.py --at "2026-11-09 10:46" --expiry 2027-01-15 --strike 180
+```
+
+Writes two pictures to `output/` for the straddle at that expiry and strike, priced from the saved snapshot:
+
+- `NVDA_straddle_payoff_<expiry>_<date>.png`: profit or loss per share against the stock price, with the
+  break-evens and the most we can lose marked. The dashed line is the position's value if the move happened today
+  with implied vol unchanged.
+- `NVDA_implied_vs_realised_<expiry>_<date>.png`: the implied vol we would pay, against the vol NVDA has actually
+  delivered over the past two years (`--years` changes that). The blue line uses a window as long as the straddle's
+  remaining life, in trading days. Needs an internet connection for the price history (Yahoo Finance).
+
+Leave out `--strike` to use the strike nearest the forward.
+
 ### Options
 
 | Option | Default | What it does |
@@ -193,6 +210,7 @@ the 13-week Treasury bill (`^IRX`).
 | `iv_core.py` | Data pull, quote filtering, forward, implied vol, snapshots. No plotting. |
 | `rebuild_snapshot.py` | Snapshot for a past minute from Databento OPRA quotes, for moments nobody ran the tool at. |
 | `straddles.py` | Straddle prices (mid, buy, sell, implied move, break-evens) at chosen expiries and strikes, across snapshots. |
+| `pitch_graphs.py` | Payoff diagram and implied-versus-realised vol graph for one straddle. |
 | `check_iv.py` | Offline tests on a made-up chain with a known answer: `python check_iv.py` |
 | `data/snapshots/` | Saved chains with computed IV, one `.csv.gz` and one `.json` per run. Committed. |
 | `output/` | The pictures and straddle tables listed at the top. Committed, so they can be viewed on GitHub without running anything. |
